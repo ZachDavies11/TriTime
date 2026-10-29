@@ -301,6 +301,9 @@ td:first-child{font-weight:700;white-space:nowrap}
 .nbv{text-align:right;font-weight:800;font-size:15px}
 .nbv small{display:block;font-size:10.5px;font-weight:700;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
 .rbk{display:flex;align-items:center;gap:12px;margin-top:14px;padding:12px;border-radius:14px;background:var(--card2);border:1px solid var(--line);font-size:13.5px}
+.chk.ro{opacity:.55}
+.chk.ro:not(.on){border-style:dashed}
+.lockn{display:flex;align-items:center;gap:6px;margin-top:12px;padding-top:10px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
 </style>
 
 <div class="app" id="app"></div>
@@ -805,6 +808,7 @@ const I={
   lift:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="4.5" r="2"/><path d="M12 7v6m0 0-3 7m3-7 3 7M4 9h16M4 7v4M20 7v4"/></svg>',
   race:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 21V4m0 0h12l-2 4 2 4H5"/></svg>',
   rest:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/></svg>',
+  lock:'<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
   pin:'<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 21s-6-5.3-6-11a6 6 0 0 1 12 0c0 5.7-6 11-6 11z"/><circle cx="12" cy="10" r="2"/></svg>'
 };
 I.brick=I.bike;
@@ -823,7 +827,7 @@ function sessRows(s,compact=true){
   if(!info.items.length&&!info.rest.length&&!info.notes.length) return `<div class="restline">Nothing planned.</div>`;
   const rows=info.items.map(it=>{const on=isDone(s,it.key);return `<div class="srow ${on?"done":""}">
     <button class="open" data-open="${s}|${it.key}" aria-label="Open ${esc(it.title)}">${sic(it)}<span class="stx"><span class="st" style="display:block">${esc(it.title)}</span>${compact?"":`<span class="sd" style="display:block">${esc(it.detail||TYPE[it.type][0])}</span>`}</span>${durCell(s,it)}</button>
-    <button class="chk ${on?"on":""}" data-toggle="${s}|${it.key}" aria-label="${on?"Mark not done":"Mark done"}: ${esc(it.title)}">${I.check}</button></div>`}).join("");
+    ${s===T?`<button class="chk ${on?"on":""}" data-toggle="${s}|${it.key}" aria-label="${on?"Mark not done":"Mark done"}: ${esc(it.title)}">${I.check}</button>`:`<span class="chk ro ${on?"on":""}" aria-label="${on?"Done":"Not done"}">${I.check}</span>`}</div>`}).join("");
   const meta=[...info.rest.filter(r=>!/legs/i.test(r)).map(r=>`<span class="chip">${esc(r.replace(/^no cardio$/i,"No cardio").replace(/^Rest, no cardio$/,"No cardio"))}</span>`),...info.notes.map(n=>`<span class="chip">${I.pin}${esc(n)}</span>`)];
   return (rows?`<div class="sess">${rows}</div>`:`<div class="restline">Rest day.</div>`)+(meta.length?`<div class="dmeta" style="margin-top:10px">${meta.join("")}</div>`:"");
 }
@@ -1188,7 +1192,16 @@ function logForm(it,lg){
         ${sp==="bike"?`<div class="span2 placel"><span>Where</span><div class="seg" role="group" aria-label="Indoor or outdoor" data-placeseg>${["outdoor","indoor"].map(v=>`<button type="button" data-place="${v}" aria-pressed="${(e.place||"outdoor")===v}">${v==="outdoor"?"Outdoor":"Indoor trainer"}</button>`).join("")}</div></div>`:""}
       </div></div>`}).join("");
 }
+function readOnlyLog(it,lg,done){
+  const past=sheet.date<T;
+  const rows=lg?Object.entries(lg).map(([sp,e])=>{const P=SPORT[sp]||{name:"Session",unit:""};const bits=[e.sec?fmtDur(e.sec):"",e.dist?(sp==="swim"?e.dist.toLocaleString()+" yd":e.dist+" mi"):"",e.mph?e.mph+" mph":"",e.avg?e.avg+" bpm avg":"",sp==="bike"&&e.place?(e.place==="indoor"?"Indoor":"Outdoor"):""].filter(Boolean);
+    return `<div class="ex"><span style="font-weight:700;color:${P.c||"var(--fg)"}">${Object.keys(lg).length>1?P.name:"Logged"}</span><span class="num" style="text-align:right">${esc(bits.join(" · ")||"—")}</span></div>`}).join(""):"";
+  return `<div class="card"><div class="eyebrow" style="margin-bottom:${lg?6:4}px">${lg?"Your log":past?(done?"Done":"Not logged"):"Coming up"}</div>
+    ${rows||`<div class="sub" style="line-height:1.5">${past?(done?"Marked done without details.":"This session wasn't logged."):"You can log this on "+nice(sheet.date)+"."}</div>`}
+    <div class="lockn">${I.lock}Only today's sessions can be logged or changed.</div></div>`;
+}
 function saveLog(){
+  if(sheet.date!==T) return;
   const it=getItem(sheet.date,sheet.key), out={}, err=document.getElementById("ferr");
   const num=id=>{const v=(document.getElementById(id)||{}).value;if(v==null||String(v).trim()==="")return null;const n=parseFloat(String(v).replace(",","."));return isNaN(n)?NaN:n};
   for(const sp of partsOf(it)){
@@ -1226,11 +1239,11 @@ function vSheet(){
     <div class="row"><button class="iconbtn" data-close aria-label="Back">${I.left}</button><div class="grow eyebrow" style="text-align:center">${nice(sheet.date)}</div><span style="width:38px"></span></div>
     <div class="hero">${sic(it)}<h2>${esc(it.title)}</h2><div class="facts"><span class="chip" style="color:${TYPE[it.type][1]}">${TYPE[it.type][0]}</span>${it.min?`<span class="chip num">Plan: about ${durLabel(it)}</span>`:""}${done?`<span class="chip" style="color:var(--lime)">Done</span>`:""}</div></div>
     ${steps}${ex}${fuel}
-    <div class="card"><div class="row" style="margin-bottom:12px"><div class="grow eyebrow">${lg?"Your log":"Log this session"}</div>${lg?`<button class="btn ghost sm" data-clearlog>Clear</button>`:""}</div>
+    ${sheet.date===T?`<div class="card"><div class="row" style="margin-bottom:12px"><div class="grow eyebrow">${lg?"Your log":"Log this session"}</div>${lg?`<button class="btn ghost sm" data-clearlog>Clear</button>`:""}</div>
       ${logForm(it,lg)}
       <div class="ferr" id="ferr" role="alert"></div>
       <div class="actions" style="margin-top:12px"><button class="btn lime" data-savelog>${lg?"Update log":"Save log"}</button><button class="btn ghost" data-toggle="${sheet.date}|${sheet.key}">${done?"Mark not done":"Mark done"}</button></div>
-    </div>
+    </div>`:readOnlyLog(it,lg,done)}
     ${notes.length?`<div class="dmeta" style="justify-content:center">${notes.map(n=>`<span class="chip">${I.pin}${esc(n)}</span>`).join("")}</div>`:""}
   </div></div>`;
 }
@@ -1369,10 +1382,10 @@ document.addEventListener("click",e=>{
   const b=e.target.closest("button,[data-mclose],[data-go]"); if(!b) return;
   const D=b.dataset;
   if(D.tab){tab=D.tab;wkView=null;sleepDay=null;try{history.replaceState(null,"","#"+tab)}catch(_){location.hash=tab}render();scrollTo(0,0);return}
-  if(D.toggle){const[s,k]=D.toggle.split("|");toggle(s,k);render();return}
+  if(D.toggle){const[s,k]=D.toggle.split("|");if(s===T)toggle(s,k);render();return}
   if(D.open){const[s,k]=D.open.split("|");sheet={date:s,key:k};render();return}
   if(D.savelog!==undefined){saveLog();return}
-  if(D.clearlog!==undefined){const d=day(sheet.date);if(d.log)delete d.log[sheet.key];persist("d"+sheet.date);render();return}
+  if(D.clearlog!==undefined){if(sheet.date!==T)return;const d=day(sheet.date);if(d.log)delete d.log[sheet.key];persist("d"+sheet.date);render();return}
   if(D.psport){progSport=D.psport;render();return}
   if(D.peasy){progEasy=D.peasy==="1";render();return}
   if(D.addphoto){photoRace=D.addphoto;document.getElementById("photoIn").click();return}
