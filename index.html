@@ -304,6 +304,10 @@ td:first-child{font-weight:700;white-space:nowrap}
 .chk.ro{opacity:.55}
 .chk.ro:not(.on){border-style:dashed}
 .lockn{display:flex;align-items:center;gap:6px;margin-top:12px;padding-top:10px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+.skipo{border-color:rgba(169,162,246,.35);background:linear-gradient(180deg,rgba(169,162,246,.1),rgba(169,162,246,.03))}
+.skipo svg,.skipb svg{width:20px;height:20px;color:var(--sleep);flex:none;margin-top:1px}
+.skipb{display:flex;align-items:center;gap:12px;padding:12px;border-radius:14px;background:var(--sleep-soft);border:1px solid rgba(169,162,246,.35);margin-bottom:10px;font-size:14px}
+.sess.skipped .srow{opacity:.5}
 </style>
 
 <div class="app" id="app"></div>
@@ -786,7 +790,16 @@ const TIERS=[["Bronze",0,"#b8764a"],["Silver",500,"#c4c4c4"],["Gold",1200,"#e7c3
 function isDone(s,k){return !!(S.days[s]&&S.days[s].done&&S.days[s].done[k])}
 function points(){let p=0;for(const s in S.days){const d=S.days[s];if(d.done){const its=dayItems(s);for(const k in d.done){const it=its.find(x=>x.key===k);if(it)p+=it.type==="race"?150:10}}if(d.sleep&&d.sleep.h>=goal())p+=5}return p}
 function tierInfo(){const p=points();let i=0;TIERS.forEach((t,j)=>{if(p>=t[1])i=j});return{p,i,t:TIERS[i],next:TIERS[i+1]}}
-function dayStatus(s){const t=dayItems(s);return{n:t.length,d:t.filter(x=>isDone(s,x.key)).length}}
+// Poor-sleep skip: once per week (Mon–Sun), a day can be skipped without breaking the streak.
+function isSkipped(s){return !!(S.days[s]&&S.days[s].skip)}
+function skipUsedThisWeek(s){const wk=mondayOf(s);for(let i=0;i<7;i++){const d=addDays(wk,i);if(d!==s&&isSkipped(d))return d}return null}
+function canSkip(){
+  if(T>PLAN_END||isSkipped(T)) return false;
+  const e=sleepOf(T); if(!e||e.q>2) return false; // Poor or Awful sleep only
+  const its=dayItems(T); if(!its.length||its.every(x=>isDone(T,x.key))) return false;
+  return !skipUsedThisWeek(T);
+}
+function dayStatus(s){const t=isSkipped(s)?[]:dayItems(s);return{n:t.length,d:t.filter(x=>isDone(s,x.key)).length}}
 function streak(){let s=T,c=0;const st=dayStatus(s);if(st.n&&!st.d)s=addDays(s,-1);
   while(s>="2026-10-27"){const x=dayStatus(s);if(x.n===0){s=addDays(s,-1);continue}if(x.d===0)break;c++;s=addDays(s,-1)}return c}
 
@@ -825,6 +838,9 @@ function sic(it,big){const[,c,bg]=TYPE[it.type];return `<span class="sic" style=
 function sessRows(s,compact=true){
   const info=dayInfo(s);
   if(!info.items.length&&!info.rest.length&&!info.notes.length) return `<div class="restline">Nothing planned.</div>`;
+  const skipped=isSkipped(s);
+  if(skipped&&info.items.length) return `<div class="skipb">${I.sleep}<div class="grow"><b>Rest day taken</b><div class="sub">Poor sleep · your streak is safe${s===T?". Using it again this week isn't possible.":"."}</div></div>${s===T?`<button class="btn ghost sm" data-unskip>Undo</button>`:""}</div>
+    <div class="sess skipped">${info.items.map(it=>`<div class="srow"><button class="open" data-open="${s}|${it.key}" aria-label="Open ${esc(it.title)}">${sic(it)}<span class="stx"><span class="st" style="display:block">${esc(it.title)}</span></span><span class="dur">Skipped</span></button></div>`).join("")}</div>`;
   const rows=info.items.map(it=>{const on=isDone(s,it.key);return `<div class="srow ${on?"done":""}">
     <button class="open" data-open="${s}|${it.key}" aria-label="Open ${esc(it.title)}">${sic(it)}<span class="stx"><span class="st" style="display:block">${esc(it.title)}</span>${compact?"":`<span class="sd" style="display:block">${esc(it.detail||TYPE[it.type][0])}</span>`}</span>${durCell(s,it)}</button>
     ${s===T?`<button class="chk ${on?"on":""}" data-toggle="${s}|${it.key}" aria-label="${on?"Mark not done":"Mark done"}: ${esc(it.title)}">${I.check}</button>`:`<span class="chk ro ${on?"on":""}" aria-label="${on?"Done":"Not done"}">${I.check}</span>`}</div>`}).join("");
@@ -913,7 +929,7 @@ function vRecap(){
   if(dow(T)!==1) return "";
   const lw=addDays(mondayOf(T),-7); if(lw<"2026-10-26") return "";
   let wn=0,wd=0,bikeH=0,ind=0,out=0;
-  for(let i=0;i<7;i++){const s=addDays(lw,i);dayItems(s).forEach(it=>{wn++;if(!isDone(s,it.key))return;wd++;
+  for(let i=0;i<7;i++){const s=addDays(lw,i);if(isSkipped(s))return;dayItems(s).forEach(it=>{wn++;if(!isDone(s,it.key))return;wd++;
     const lg=logOf(s,it.key)||{};
     if(it.type==="bike"||it.type==="brick"||(it.type==="race"&&lg.bike)){const b=lg.bike;bikeH+=b&&b.sec?b.sec/3600:(it.type==="brick"?it.min*0.8:it.type==="race"?0:it.min)/60;if(b&&b.place==="indoor")ind++;else if(b&&b.place==="outdoor")out++}})}
   const nights=[];for(let i=0;i<7;i++){const e=sleepOf(addDays(lw,i));if(e)nights.push(e)}
@@ -928,7 +944,7 @@ function vRecap(){
   <div class="card recap">
     <div class="rgrid">
       <div><span class="sub">Hours</span><b class="num">${fmtHrs(dn)}</b><small class="num">of ${fmtHrs(pd)} · ${pct}%</small></div>
-      <div><span class="sub">Sessions</span><b class="num">${wd}/${wn}</b><small>${wd===wn&&wn?"Every one done":wn-wd+" missed"}</small></div>
+      <div><span class="sub">Sessions</span><b class="num">${wd}/${wn}</b><small>${wd===wn&&wn?"Every one done":wn-wd+" missed"}${[0,1,2,3,4,5,6].some(i=>isSkipped(addDays(lw,i)))?" · 1 rest day":""}</small></div>
       <div><span class="sub">On the bike</span><b class="num">${fmtHrs(bikeH)}</b><small>${ind||out?`${out} outdoor · ${ind} indoor`:"Bike first"}</small></div>
       <div><span class="sub">Sleep</span><b class="num">${sAvg?fmtH(sAvg):"—"}</b><small>${nights.length?atGoal+" of 7 nights at goal":"No nights logged"}</small></div>
       <div><span class="sub">Resting HR</span><b class="num">${rAvg?rAvg+" bpm":"—"}</b><small>${rAvg&&rPrev?(rAvg<rPrev?"Down "+(rPrev-rAvg)+" from the week before":rAvg>rPrev?"Up "+(rAvg-rPrev)+" from the week before":"Same as the week before"):"Log it in Sleep"}</small></div>
@@ -987,7 +1003,9 @@ function vHome(){
   ${vHero()}
   ${vReady()}
   ${vRecap()}
-  <div class="sec"><h2 class="sech">Today</h2><span class="sub num">${its.length?fmtHrs(its.reduce((a,x)=>a+x.min,0)/60)+" · "+its.filter(x=>isDone(T,x.key)).length+"/"+its.length+" done":""}</span></div>
+  <div class="sec"><h2 class="sech">Today</h2><span class="sub num">${isSkipped(T)?"Rest day":its.length?fmtHrs(its.reduce((a,x)=>a+x.min,0)/60)+" · "+its.filter(x=>isDone(T,x.key)).length+"/"+its.length+" done":""}</span></div>
+  ${canSkip()?`<div class="card skipo"><div class="row" style="align-items:flex-start">${I.sleep}<div class="grow"><b>Rough night? You can take today off.</b><div class="sub" style="line-height:1.45;margin-top:2px">You rated last night ${QUAL[sleepOf(T).q-1]}. Skip today's sessions without losing your streak. You get one skip a week.</div></div></div>
+    <button class="btn ${skipArm?"lime":"ghost"}" data-skip style="width:100%;margin-top:12px">${skipArm?"Tap again to skip today":"Skip today"}</button></div>`:""}
   <div class="card">${T>PLAN_END?`<div class="restline">Plan complete. Every day through the full Ironman is behind you.</div>`:sessRows(T,true)}</div>
   <div class="sec"><h2 class="sech">Recovery</h2></div>
   <div class="split">
@@ -1027,7 +1045,7 @@ function vWorkouts(){
   let wn=0,wd=0; const days=[];
   for(let i=0;i<7;i++){const s=addDays(wk,i);const x=dayStatus(s);wn+=x.n;wd+=x.d;
     const race=RACES.find(r=>r.date===s);
-    days.push(`<div class="card day ${s===T?"today":""}"><div class="dh"><span class="dn">${nice(s)}</span>${s===T?'<span class="pill">Today</span>':""}${race?'<span class="pill o">Race</span>':""}<span class="dprog num">${x.n?fmtHrs(dayItems(s).reduce((a,y)=>a+y.min,0)/60)+" · "+x.d+"/"+x.n:""}</span></div>${sessRows(s)}</div>`)}
+    days.push(`<div class="card day ${s===T?"today":""}"><div class="dh"><span class="dn">${nice(s)}</span>${s===T?'<span class="pill">Today</span>':""}${race?'<span class="pill o">Race</span>':""}${isSkipped(s)?'<span class="pill v">Rest day</span>':""}<span class="dprog num">${x.n?fmtHrs(dayItems(s).reduce((a,y)=>a+y.min,0)/60)+" · "+x.d+"/"+x.n:""}</span></div>${sessRows(s)}</div>`)}
   const keyed=[...new Map(PHASES.map(p=>[p.name.replace(/ \d.*$/,"").replace(/ \+.*$/,""),p.c])).entries()];
   return `
   <header class="hdr"><div class="grow"><div class="eyebrow">Training plan · Oct 2026 – Nov 2027</div><h2>Workouts</h2></div></header>
@@ -1196,12 +1214,13 @@ function readOnlyLog(it,lg,done){
   const past=sheet.date<T;
   const rows=lg?Object.entries(lg).map(([sp,e])=>{const P=SPORT[sp]||{name:"Session",unit:""};const bits=[e.sec?fmtDur(e.sec):"",e.dist?(sp==="swim"?e.dist.toLocaleString()+" yd":e.dist+" mi"):"",e.mph?e.mph+" mph":"",e.avg?e.avg+" bpm avg":"",sp==="bike"&&e.place?(e.place==="indoor"?"Indoor":"Outdoor"):""].filter(Boolean);
     return `<div class="ex"><span style="font-weight:700;color:${P.c||"var(--fg)"}">${Object.keys(lg).length>1?P.name:"Logged"}</span><span class="num" style="text-align:right">${esc(bits.join(" · ")||"—")}</span></div>`}).join(""):"";
+  if(isSkipped(sheet.date)) return `<div class="card"><div class="eyebrow" style="margin-bottom:4px">Skipped</div><div class="sub" style="line-height:1.5">Rest day after poor sleep. Your streak is safe.</div></div>`;
   return `<div class="card"><div class="eyebrow" style="margin-bottom:${lg?6:4}px">${lg?"Your log":past?(done?"Done":"Not logged"):"Coming up"}</div>
     ${rows||`<div class="sub" style="line-height:1.5">${past?(done?"Marked done without details.":"This session wasn't logged."):"You can log this on "+nice(sheet.date)+"."}</div>`}
     <div class="lockn">${I.lock}Only today's sessions can be logged or changed.</div></div>`;
 }
 function saveLog(){
-  if(sheet.date!==T) return;
+  if(sheet.date!==T||isSkipped(T)) return;
   const it=getItem(sheet.date,sheet.key), out={}, err=document.getElementById("ferr");
   const num=id=>{const v=(document.getElementById(id)||{}).value;if(v==null||String(v).trim()==="")return null;const n=parseFloat(String(v).replace(",","."));return isNaN(n)?NaN:n};
   for(const sp of partsOf(it)){
@@ -1239,7 +1258,7 @@ function vSheet(){
     <div class="row"><button class="iconbtn" data-close aria-label="Back">${I.left}</button><div class="grow eyebrow" style="text-align:center">${nice(sheet.date)}</div><span style="width:38px"></span></div>
     <div class="hero">${sic(it)}<h2>${esc(it.title)}</h2><div class="facts"><span class="chip" style="color:${TYPE[it.type][1]}">${TYPE[it.type][0]}</span>${it.min?`<span class="chip num">Plan: about ${durLabel(it)}</span>`:""}${done?`<span class="chip" style="color:var(--lime)">Done</span>`:""}</div></div>
     ${steps}${ex}${fuel}
-    ${sheet.date===T?`<div class="card"><div class="row" style="margin-bottom:12px"><div class="grow eyebrow">${lg?"Your log":"Log this session"}</div>${lg?`<button class="btn ghost sm" data-clearlog>Clear</button>`:""}</div>
+    ${sheet.date===T&&!isSkipped(T)?`<div class="card"><div class="row" style="margin-bottom:12px"><div class="grow eyebrow">${lg?"Your log":"Log this session"}</div>${lg?`<button class="btn ghost sm" data-clearlog>Clear</button>`:""}</div>
       ${logForm(it,lg)}
       <div class="ferr" id="ferr" role="alert"></div>
       <div class="actions" style="margin-top:12px"><button class="btn lime" data-savelog>${lg?"Update log":"Save log"}</button><button class="btn ghost" data-toggle="${sheet.date}|${sheet.key}">${done?"Mark not done":"Mark done"}</button></div>
@@ -1382,7 +1401,7 @@ document.addEventListener("click",e=>{
   const b=e.target.closest("button,[data-mclose],[data-go]"); if(!b) return;
   const D=b.dataset;
   if(D.tab){tab=D.tab;wkView=null;sleepDay=null;try{history.replaceState(null,"","#"+tab)}catch(_){location.hash=tab}render();scrollTo(0,0);return}
-  if(D.toggle){const[s,k]=D.toggle.split("|");if(s===T)toggle(s,k);render();return}
+  if(D.toggle){const[s,k]=D.toggle.split("|");if(s===T&&!isSkipped(s))toggle(s,k);render();return}
   if(D.open){const[s,k]=D.open.split("|");sheet={date:s,key:k};render();return}
   if(D.savelog!==undefined){saveLog();return}
   if(D.clearlog!==undefined){if(sheet.date!==T)return;const d=day(sheet.date);if(d.log)delete d.log[sheet.key];persist("d"+sheet.date);render();return}
@@ -1396,6 +1415,8 @@ document.addEventListener("click",e=>{
   if(D.sday){if(D.sday<=T){sleepDay=D.sday;qPick=null;render()}return}
   if(D.export!==undefined){exportData();return}
   if(D.import!==undefined){if(!importArm){importArm=true;render();setTimeout(()=>{importArm=false;render()},5000);return}importArm=false;document.getElementById("importIn").click();render();return}
+  if(D.skip!==undefined){if(!canSkip())return;if(!skipArm){skipArm=true;render();setTimeout(()=>{skipArm=false;render()},5000);return}skipArm=false;day(T).skip=true;persist("d"+T);render();return}
+  if(D.unskip!==undefined){if(S.days[T]){delete S.days[T].skip;persist("d"+T)}render();return}
   if(D.place){b.parentNode.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed",x===b));return}
   if(D.pplace){progPlace=D.pplace;render();return}
   if(D.q){qPick=+D.q;b.parentNode.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed",x===b));return}
@@ -1410,7 +1431,7 @@ document.addEventListener("click",e=>{
   if(D.close!==undefined){sheet=null;render();return}
 });
 let nt=null;
-let importArm=false, backupMsg="";
+let importArm=false, backupMsg="", skipArm=false;
 async function exportData(){
   const json=JSON.stringify({app:"TriTime",version:1,saved:new Date().toISOString(),data:{days:S.days,settings:S.settings}});
   const name="TriTime-backup-"+todayStr()+".json", file=new File([json],name,{type:"application/json"});
